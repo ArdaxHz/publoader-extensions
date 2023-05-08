@@ -1,0 +1,10 @@
+*.db
+__pycache__
+config.ini
+last_run.txt
+*.log
+logs/*
+.mdauth
+*.bak
+manga_data.json
+.idea
