@@ -12,8 +12,8 @@ from typing import List, Optional, Union
 import aiohttp
 import requests
 
-from publoader.extensions.mangaplus import response_updates_pb2 as response_pb
-from publoader.extensions.mangaplus.response_chapter_pb2 import Response
+from publoader.extensions.src.mangaplus import response_updates_pb2 as response_pb
+from publoader.extensions.src.mangaplus.response_chapter_pb2 import Response
 from publoader.models.dataclasses import Chapter, Manga
 from publoader.utils.logs import setup_extension_logs
 from publoader.utils.misc import create_new_event_loop, find_key_from_list_value
