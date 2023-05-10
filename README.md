@@ -21,6 +21,8 @@ The quickest way to get started is to copy an existing extension's folder struct
 
 Each extension should reside in `/src/<extension_name>`.
 
+**`extension_name` can only be ascii, lowercase and not contain punctuation or spaces, except `-` and `_`. Your extension will not run if the extension directory name (and with extension, the main-file name) are not valid.** 
+
 ## Extension directory structure
 
 The simplest extension structure looks like this:
