@@ -23,7 +23,7 @@ from publoader.utils.utils import (
     open_title_regex,
 )
 
-__version__ = "0.1.20"
+__version__ = "0.1.21"
 
 setup_extension_logs(
     logger_name="mangaplus",
@@ -292,6 +292,7 @@ class Extension:
                 ),
                 manga_name=manga_object.manga_name,
                 manga_url=self._manga_url_format.format(manga_object.manga_id),
+                extension_name=self.name,
             )
             for mplus_chapter in chapter_list
         ]
