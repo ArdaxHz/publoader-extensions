@@ -22,7 +22,7 @@ on:
 
 jobs:
   codeql:
-    name: Analyze
+    name: CodeQL Scanning
     # Runner size impacts CodeQL analysis time. To learn more, please see:
     #   - https://gh.io/recommended-hardware-resources-for-running-codeql
     #   - https://gh.io/supported-runners-and-hardware-resources
@@ -82,6 +82,7 @@ jobs:
         category: "/language:${{matrix.language}}"
  
   json-yaml-validate:
+    name: JSON Validation
     runs-on: ubuntu-latest
     steps:
     - name: Checkout repository
