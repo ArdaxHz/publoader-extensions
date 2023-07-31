@@ -23,7 +23,7 @@ from publoader.utils.utils import (
     open_title_regex,
 )
 
-__version__ = "0.1.21"
+__version__ = "0.1.22"
 
 setup_extension_logs(
     logger_name="mangaplus",
@@ -61,6 +61,7 @@ class Extension:
             "4": "pt-br",
             "5": "ru",
             "6": "th",
+            "9": "vi"
         }
 
     @property
