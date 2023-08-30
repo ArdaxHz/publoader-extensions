@@ -23,7 +23,7 @@ from publoader.utils.utils import (
     open_title_regex,
 )
 
-__version__ = "0.1.22"
+__version__ = "0.1.3"
 
 setup_extension_logs(
     logger_name="mangaplus",
@@ -38,7 +38,7 @@ class Extension:
         self.name = "mangaplus"
         self.mangadex_group_id = "4f1de6a2-f0c5-4ac5-bce5-02c7dbb67deb"
         self.manga_id_map_filename = "manga_id_map.json"
-        self.custom_regexes_filename = "custom_regexes.json"
+        self.override_options_filename = "override_options.json"
         self.extension_dirpath = extension_dirpath
 
         self.fetch_all_chapters = False
@@ -61,7 +61,7 @@ class Extension:
             "4": "pt-br",
             "5": "ru",
             "6": "th",
-            "9": "vi"
+            "9": "vi",
         }
 
     @property
@@ -106,7 +106,7 @@ class Extension:
             for md_id in self._manga_id_map
             for mplus_id in self._manga_id_map[md_id]
         ]
-        self.custom_regexes = self._open_custom_regexes()
+        self.override_options = self._open_override_options()
         self._num2words: Optional[str] = self._get_num2words_string()
 
         self._get_mplus_updated_manga()
@@ -117,16 +117,16 @@ class Extension:
             self.extension_dirpath.joinpath(self.manga_id_map_filename)
         )
 
-    def _open_custom_regexes(self):
+    def _open_override_options(self):
         return open_title_regex(
-            self.extension_dirpath.joinpath(self.custom_regexes_filename)
+            self.extension_dirpath.joinpath(self.override_options_filename)
         )
 
     def _get_language(self, manga_id: str, language: str):
         manga_id = str(manga_id)
 
-        if manga_id in self.custom_regexes.get("custom_language", {}):
-            return self.custom_regexes["custom_language"][manga_id]
+        if manga_id in self.override_options.get("custom_language", {}):
+            return self.override_options["custom_language"][manga_id]
 
         language = str(language)
         if language in self.extension_languages:
@@ -138,11 +138,11 @@ class Extension:
         return "NULL"
 
     def _get_num2words_string(self):
-        num2words_list = self.custom_regexes.get("num2words")
+        num2words_list = self.override_options.get("num2words")
         if num2words_list is None:
             return
 
-        return "(" + "|".join(self.custom_regexes.get("num2words")) + ")"
+        return "(" + "|".join(self.override_options.get("num2words")) + ")"
 
     def _get_proto_response(self, response_proto: bytes) -> response_pb.Response:
         """Convert api response into readable data."""
@@ -402,34 +402,42 @@ class Extension:
         if chapter_number == "ex":
             # Get previous chapter's number for chapter number
             previous_chapter = self._get_surrounding_chapter(chapters, chapter)
-            next_chapter_number = None
-            previous_chapter_number = None
+            next_chapter = self._get_surrounding_chapter(
+                chapters, chapter, next_chapter_search=True
+            )
 
-            if previous_chapter is None:
-                # Previous chapter isn't available, use next chapter's number
-                # if available
-                next_chapter = self._get_surrounding_chapter(
-                    chapters, chapter, next_chapter_search=True
+            next_chapter_number = None
+            if next_chapter is not None:
+                next_chapter_number = self._strip_chapter_number(
+                    next_chapter.chapter_number
                 )
-                if next_chapter is None:
-                    chapter_number = None
-                else:
-                    next_chapter_number = self._strip_chapter_number(
-                        next_chapter.chapter_number
-                    )
-                    chapter_number = (
-                        int(re.split(r"\.|\-|\,", next_chapter_number)[0]) - 1
-                    )
-                    first_index = next_chapter
-                    second_index = chapter
-            else:
+                next_chapter_number = (
+                    int(re.split(r"\.|\-|\,", next_chapter_number)[0]) - 1
+                )
+
+            previous_chapter_number = None
+            if previous_chapter is not None:
                 previous_chapter_number = self._strip_chapter_number(
                     previous_chapter.chapter_number
                 )
                 if "," in previous_chapter_number:
-                    chapter_number = previous_chapter_number.split(",")[-1]
+                    previous_chapter_number = previous_chapter_number.split(",")[-1]
                 else:
-                    chapter_number = re.split(r"\.|\-", previous_chapter_number)[0]
+                    previous_chapter_number = re.split(
+                        r"\.|\-", previous_chapter_number
+                    )[0]
+
+            if previous_chapter is None:
+                # Previous chapter isn't available, use next chapter's number
+                # if available
+                if next_chapter is None:
+                    chapter_number = None
+                else:
+                    chapter_number = next_chapter_number
+                    first_index = next_chapter
+                    second_index = chapter
+            else:
+                chapter_number = previous_chapter_number
                 first_index = chapter
                 second_index = previous_chapter
 
@@ -452,6 +460,9 @@ class Extension:
                     chapter_difference = chapters.index(first_index) - chapters.index(
                         second_index
                     )
+                    if next_chapter is None:
+                        chapter_decimal = chapter_difference
+
                     if chapter_difference > 1:
                         second_index_number = second_index.chapter_number
                         if "." in second_index_number:
@@ -496,6 +507,16 @@ class Extension:
             else:
                 returned_chapter_numbers.append(num)
 
+        if (
+            chapter.chapter_id
+            in self.override_options.get("override_chapter_numbers", {}).keys()
+        ):
+            returned_chapter_numbers = [
+                self.override_options.get("override_chapter_numbers", {}).get(
+                    chapter.chapter_id, *returned_chapter_numbers
+                )
+            ]
+
         return returned_chapter_numbers
 
     def _normalise_chapter_title(
@@ -528,18 +549,18 @@ class Extension:
         custom_regex = None
 
         if (
-            chapter.manga_id in self.custom_regexes.get("empty", [])
+            chapter.manga_id in self.override_options.get("empty", [])
             and None not in chapter_number
             or original_title.lower() in ("final chapter",)
         ):
             normalised_title = None
             custom_regex = "Empty Title"
-        elif chapter.manga_id in self.custom_regexes.get("noformat", []):
+        elif chapter.manga_id in self.override_options.get("noformat", []):
             normalised_title = original_title
             custom_regex = "Original Title"
-        elif str(chapter.manga_id) in self.custom_regexes.get("custom", {}):
+        elif str(chapter.manga_id) in self.override_options.get("custom", {}):
             pattern_to_use = re.compile(
-                self.custom_regexes["custom"][str(chapter.manga_id)], re.I
+                self.override_options["custom"][str(chapter.manga_id)], re.I
             )
             custom_regex = "Custom Regex"
         elif final_chapter_regex.match(original_title):

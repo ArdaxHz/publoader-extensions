@@ -31,7 +31,7 @@ The simplest extension structure looks like this:
 /src/<extension_name>
 ├── <extension_name>.py
 ├── manga_id_map.json
-├── custom_regexes.json
+├── override_options.json
 ├── requirements.txt
 └── <any_file_or_dir_you_want>
 ```
@@ -43,12 +43,11 @@ This is the entry point for your extension. The name of the file should match th
 Can be any name. The MangaDex id to the publisher site's manga ids, or whatever id you will use to associate a chapter to a manga.
 The structure of the file can be whatever you want, however you need to provide a list of tracked MangaDex manga ids.
 
-#### custom_regexes.json
-Can be any name and is not necessary. Your implementation should sanitise chapter titles to conform to MangaDex's rules.
+#### override_options.json
+Can be any name and is not necessary. This file contains any manual overrides for certain series or chapters that do not conform to a standard format.
+Your implementation should sanitise chapter titles to conform to MangaDex's rules.
 
-You can use any means necessary to sanitise the chapter titles. If you use generic, catch-all regexes for the titles and a series' title does not conform to the specified regexes, this file can be used for custom regexes for select series.
-
-_**The bot only accesses the `same` and `custom_language` fields, all other fields can be named differently.**_
+_**The bot only accesses the `same`, `custom_language`, `multi_chapters`, and `override_chapter_numbers` fields, all other fields can be named differently.**_
 
 If you want to include this file, use the structure as follows:
 
@@ -58,7 +57,9 @@ If you want to include this file, use the structure as follows:
     "noformat": [],
     "custom": {"series_id": "regex"},
     "same": {"chapter_to_keep_id": ["other_chapter_id"]},
-    "custom_language": {}
+    "custom_language": {},
+    "multi_chapters": [],
+    "override_chapter_numbers": {"chapter_id": "overriden_chapter_number"}
 }
 ```
 - `"empty": [],` An array of manga ids for chapters that will never have a title (null).
@@ -97,14 +98,14 @@ class Extension:
 
 ### Main class key variables
 
-| Field                  | Type        | Description                                                                                           |
-|------------------------|-------------|-------------------------------------------------------------------------------------------------------|
-| `name`                 | `str`       | Name used in the database and in the logs. Can contain `-` or `_`. *This name should not be changed.* |
-| `mangadex_group_id`    | `str`       | MangaDex id of the group to upload to.                                                                |
-| `custom_regexes`       | `dict`      | Your custom regexes file after being opened and read. If not used, return an empty dict `{}`.         |
-| `extension_languages`  | `List[str]` | A list of languages supported by the extension.                                                       |
-| `tracked_mangadex_ids` | `List[str]` | A list of MangaDex manga ids the extension uploads to.                                                |
-| `disabled`             | `bool`      | If the extension is active to run or skipped. *If missing this will be True.*                         |
+| Field                  | Type        | Description                                                                                              |
+|------------------------|-------------|----------------------------------------------------------------------------------------------------------|
+| `name`                 | `str`       | Name used in the database and in the logs. Can contain `-` or `_`. *This name should not be changed.*    |
+| `mangadex_group_id`    | `str`       | MangaDex id of the group to upload to.                                                                   |
+| `override_options`     | `dict`      | Your custom overridden options file after being opened and read. If not used, return an empty dict `{}`. |
+| `extension_languages`  | `List[str]` | A list of languages supported by the extension.                                                          |
+| `tracked_mangadex_ids` | `List[str]` | A list of MangaDex manga ids the extension uploads to.                                                   |
+| `disabled`             | `bool`      | If the extension is active to run or skipped. *If missing, this will default to True.*                   |
 
 ---
 
@@ -112,7 +113,7 @@ class Extension:
 #### None of the following methods called by the bot should accept parameters.
 
 - `get_updated_chapters(self) -> List[Chapter]` Returns a list of newly released chapters.
-- `get_all_chapters(self) -> List[Chapter]` Returns all the chapters available for a series, uploaded or not uploaded. *If the site does not support retrieving all the available chapters for a series, this should return an empty array.*
+- `get_all_chapters(self) -> List[Chapter]` Returns all the chapters available for a series, uploaded or not uploaded. ***Must be provided if possible. Returning None will skip checking if chapters have been removed, an empty list will remove the chapters for that series.***
 - `get_updated_manga(self) -> List[Manga]` Returns a list of untracked newly added series.
 - `run_at(self) -> datetime.time` A time object of when you want the extension to be run. As the bot is run hourly, having the minute set as anything other than zero will not run the extension. 
 - `clean_at(self) -> Optional[List[int]]` The days you want to run the extension as if it is a fresh run. This allows the bot to check for duplicate chapters, chapters not uploaded and chapters needing to be deleted. Allowed values: `None` to disable this, `[]` for the default day (wednesday), an int value in the range 0-6 (inclusive) for the day of the week, e.g. `[0, 3]` for mondays and thursdays.
@@ -168,7 +169,7 @@ setup_extension_logs(
 from publoader.utils.utils import open_manga_id_map, open_title_regex
 
 manga_id_map = open_manga_id_map(file_path: Path)
-custom_regexes = open_title_regex(file_path: Path)
+override_options = open_title_regex(file_path: Path)
 ```
 
 ```python
