@@ -58,7 +58,7 @@ If you want to include this file, use the structure as follows:
     "custom": {"series_id": "regex"},
     "same": {"chapter_to_keep_id": ["other_chapter_id"]},
     "custom_language": {},
-    "multi_chapters": [],
+    "multi_chapters": {"chapter_id":  ["chapter_number"]},
     "override_chapter_numbers": {"chapter_id": "overriden_chapter_number"}
 }
 ```

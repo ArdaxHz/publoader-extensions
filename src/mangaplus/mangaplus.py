@@ -23,7 +23,7 @@ from publoader.utils.utils import (
     open_title_regex,
 )
 
-__version__ = "0.1.3"
+__version__ = "0.1.31"
 
 setup_extension_logs(
     logger_name="mangaplus",
@@ -516,6 +516,12 @@ class Extension:
                     chapter.chapter_id, *returned_chapter_numbers
                 )
             ]
+        elif (
+            chapter.chapter_id in self.override_options.get("multi_chapters", {}).keys()
+        ):
+            returned_chapter_numbers = self.override_options.get(
+                "multi_chapters", {}
+            ).get(chapter.chapter_id, returned_chapter_numbers)
 
         return returned_chapter_numbers
 
