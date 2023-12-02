@@ -73,10 +73,11 @@ If you want to include this file, use the structure as follows:
 You can use whatever modules you want to, but remember to include a `requirements.txt` in your extension directory.
 
 ## Scheduling the extension for running
-Add the time to run the extension in the file `/schedule.json`.
+Add the time to run the extension in the file `/schedule.json`. The `day` key is optional and can be omitted.
 The dict should extend to the current file and should follow the format:
 ```
 <extension_name>: {
+  "day": <int>,
   "hour": <24_hour_clock_int>,
   "minute": <int>,
 }
@@ -115,7 +116,7 @@ class Extension:
 - `get_updated_chapters(self) -> List[Chapter]` Returns a list of newly released chapters.
 - `get_all_chapters(self) -> List[Chapter]` Returns all the chapters available for a series, uploaded or not uploaded. ***Must be provided if possible. Returning None will skip checking if chapters have been removed, an empty list will remove the chapters for that series.***
 - `get_updated_manga(self) -> List[Manga]` Returns a list of untracked newly added series.
-- `run_at(self) -> datetime.time` A time object of when you want the extension to be run. As the bot is run hourly, having the minute set as anything other than zero will not run the extension. 
+- `run_at(self) -> datetime.time` A datetime or time object of when you want the extension to be run. If this is a datetime object, the extension will only be run on the day specified (year and month are ignored). If this is a time object, the extension will be run daily. Having the minute parameter set as anything other than zero will not run the extension. 
 - `clean_at(self) -> Optional[List[int]]` The days you want to run the extension as if it is a fresh run. This allows the bot to check for duplicate chapters, chapters not uploaded and chapters needing to be deleted. Allowed values: `None` to disable this, `[]` for the default day (wednesday), an int value in the range 0-6 (inclusive) for the day of the week, e.g. `[0, 3]` for mondays and thursdays.
 - `daily_check_run(self) -> bool` If you want the bot to run daily at 1am to catch any chapters that may have not been uploaded.
 
