@@ -61,6 +61,7 @@ class Extension:
             "4": "pt-br",
             "5": "ru",
             "6": "th",
+            "7": "de",
             "9": "vi",
         }
 
