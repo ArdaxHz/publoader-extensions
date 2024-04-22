@@ -55,7 +55,7 @@ class Extension:
     def extension_languages_map(self):
         return {
             "0": "en",
-            "1": "es-la",
+            "1": "es",
             "2": "fr",
             "3": "id",
             "4": "pt-br",
