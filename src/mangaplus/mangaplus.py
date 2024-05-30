@@ -1,4 +1,5 @@
 import asyncio
+import itertools
 import logging
 import math
 import re
@@ -12,8 +13,7 @@ from typing import List, Optional, Union
 import aiohttp
 import requests
 
-from publoader.extensions.src.mangaplus import response_updates_pb2 as response_pb
-from publoader.extensions.src.mangaplus.response_chapter_pb2 import Response
+from publoader.webhook import PubloaderWebhook
 from publoader.models.dataclasses import Chapter, Manga
 from publoader.utils.logs import setup_extension_logs
 from publoader.utils.misc import create_new_event_loop, find_key_from_list_value
@@ -23,7 +23,9 @@ from publoader.utils.utils import (
     open_title_regex,
 )
 
-__version__ = "0.1.31"
+DEFAULT_TIMESTAMP = 1
+
+__version__ = "0.2.0"
 
 setup_extension_logs(
     logger_name="mangaplus",
@@ -46,23 +48,23 @@ class Extension:
         self._updated_chapters: List[Chapter] = []
         self._all_mplus_chapters: List[Chapter] = []
         self._untracked_manga: List[Manga] = []
-        self._mplus_base_api_url = "https://jumpg-webapi.tokyo-cdn.com"
+        self._mplus_base_api_url = "https://jumpg-webapi.tokyo-cdn.com/api/"
         self._chapter_url_format = "https://mangaplus.shueisha.co.jp/viewer/{}"
         self._manga_url_format = "https://mangaplus.shueisha.co.jp/titles/{}"
-        self._images_api_url = "https://jumpg-webapi.tokyo-cdn.com/api/manga_viewer?chapter_id={}&split=no&img_quality=super_high"
+        self._images_api_url = "https://jumpg-webapi.tokyo-cdn.com/api/manga_viewer?chapter_id={}&split=no&img_quality=super_high&format=json"
 
     @property
     def extension_languages_map(self):
         return {
-            "0": "en",
-            "1": "es",
-            "2": "fr",
-            "3": "id",
-            "4": "pt-br",
-            "5": "ru",
-            "6": "th",
-            "7": "de",
-            "9": "vi",
+            "ENGLISH": "en",
+            "SPANISH": "es",
+            "FRENCH": "fr",
+            "INDONESIAN": "id",
+            "PORTUGUESE_BR": "pt-br",
+            "RUSSIAN": "ru",
+            "THAI": "th",
+            "GERMAN": "de",
+            "VIETNAMESE": "vi",
         }
 
     @property
@@ -77,7 +79,7 @@ class Extension:
         return self._updated_chapters
 
     def get_all_chapters(self) -> List[Chapter]:
-        return self._all_mplus_chapters
+        return self._all_mplus_chapters if self.fetch_all_chapters else None
 
     def get_updated_manga(self) -> List[Manga]:
         return self._untracked_manga
@@ -110,8 +112,11 @@ class Extension:
         self.override_options = self._open_override_options()
         self._num2words: Optional[str] = self._get_num2words_string()
 
-        self._get_mplus_updated_manga()
-        self._get_mplus_updates()
+        if self.fetch_all_chapters:
+            self._get_untracked_manga()
+            self._get_manga_chapters()
+        else:
+            self._get_updates()
 
     def _open_manga_id_map(self):
         return open_manga_id_map(
@@ -123,13 +128,10 @@ class Extension:
             self.extension_dirpath.joinpath(self.override_options_filename)
         )
 
-    def _get_language(self, manga_id: str, language: str):
-        manga_id = str(manga_id)
-
+    def _get_language(self, language: str, manga_id: str):
         if manga_id in self.override_options.get("custom_language", {}):
             return self.override_options["custom_language"][manga_id]
 
-        language = str(language)
         if language in self.extension_languages:
             return language
 
@@ -145,56 +147,123 @@ class Extension:
 
         return "(" + "|".join(self.override_options.get("num2words")) + ")"
 
-    def _get_proto_response(self, response_proto: bytes) -> response_pb.Response:
-        """Convert api response into readable data."""
-        response = response_pb.Response()
-        response.ParseFromString(response_proto)
-        return response
+    def _normalise_manga_object(self, title_detail_view: dict):
+        title_detail = title_detail_view.get("title", {})
+        title_id = str(title_detail.get("titleId"))
+        title_name = title_detail.get("name")
+        title_language = "en"
 
-    async def _request_from_api(
-        self, manga_id: Optional[int] = None, updated: Optional[bool] = False
-    ) -> Optional[bytes]:
+        if "language" in title_detail:
+            title_language = self._get_language(
+                title_detail.get("language", "ENGLISH"), title_id
+            )
+        # elif "titleLanguages" in title_detail_view:
+        #     title_languages = title_detail_view.get("titleLanguages", [])
+        #     language_to_change = next(
+        #         (
+        #             item.get("language", "ENGLISH")
+        #             for item in title_languages
+        #             if item.get("titleId") == title_id
+        #         ),
+        #         "ENGLISH",
+        #     )
+        #     title_language = self._get_language(language_to_change, title_id)
+
+        manga_object = Manga(
+            manga_id=title_id,
+            manga_name=title_name,
+            manga_language=title_language,
+            manga_url=self._manga_url_format.format(title_id),
+        )
+        return manga_object
+
+    async def _request_api(self, path: str, **params) -> Optional[dict]:
         """Get manga and chapter details from the api."""
+        if "format" not in params:
+            params["format"] = "json"
+
         async with aiohttp.ClientSession() as session:
             try:
-                if manga_id is not None:
-                    url = "/api/title_detail"
-                    params = {"title_id": manga_id}
-                elif updated:
-                    url = "/api/title_list/updated"
-                    params = {}
-
                 async with session.get(
-                    self._mplus_base_api_url + url,
-                    params=params,
+                    self._mplus_base_api_url + path, params=params
                 ) as response:
-                    return await response.read()
-            except Exception as e:
+                    assert response.status == 200
+                    data = await response.json()
+
+                    success_dict = data.get("success")
+                    if not success_dict:
+                        error_dict = data.get("error")
+                        eng_error_dict = error_dict.get("englishPopup", {})
+
+                        description = f"Error fetching MangaPlus API:\n`{response.url}`"
+                        error_body = eng_error_dict.get("body")
+                        if error_body:
+                            description = description + f"\n{error_body}"
+
+                        PubloaderWebhook(
+                            "mangaplus",
+                            footer={"text": "extensions.mangaplus"},
+                            title=eng_error_dict.get(
+                                "subject", "Error fetching MangaPlus API"
+                            ),
+                            description=description,
+                        ).send()
+
+                    return success_dict
+            except ZeroDivisionError as e:
                 logger.error(f"{e}: Couldn't get details from the mangaplus api.")
                 print("Request API Error", e)
-                return
+                return None
 
-    def _get_mplus_updated_manga(self):
+    async def _fetch_title_data(self, manga_id: int, **params) -> Optional[dict]:
+        """Get manga and chapter details from the api."""
+        return await self._request_api("title_detailV3", title_id=manga_id, **params)
+
+    async def _fetch_manga(self, **params) -> Optional[dict]:
+        """Get manga and chapter details from the api."""
+        return await self._request_api("title_list/allV2", **params)
+
+    async def _fetch_updates(self, **params) -> Optional[dict]:
+        """Get manga and chapter details from the api."""
+        return await self._request_api(
+            "web/web_homeV4",
+            lang="eng",
+            clang="eng,esp,tha,ptb,ind,rus,fra,deu,vie",
+            **params,
+        )
+
+    async def _fetch_chapter_images(self, chapter_id: str, **params) -> Optional[dict]:
+        """Get manga and chapter details from the api."""
+        return await self._request_api(
+            "manga_viewer",
+            chapter_id=chapter_id,
+            **params,
+        )
+
+    def _get_untracked_manga(self):
         """Find new untracked mangaplus series."""
         logger.info("Looking for new untracked manga.")
         print("Getting new manga.")
 
         loop = create_new_event_loop()
-        task = self._request_from_api(updated=True)
+        task = self._fetch_manga()
         updated_manga_response = loop.run_until_complete(task)
 
-        if updated_manga_response is not None:
-            updated_manga_response_parsed = self._get_proto_response(
-                updated_manga_response
-            )
-            updated_manga_details = updated_manga_response_parsed.success.updated
+        if not updated_manga_response:
+            logger.error("Couldn't fetch all the MangaPlus series.")
+            return
 
-            for manga in updated_manga_details.updated_manga_detail:
-                if str(manga.updated_manga.manga_id) not in self.tracked_manga:
-                    manga_id = str(manga.updated_manga.manga_id)
-                    manga_name = manga.updated_manga.manga_name
+        updated_manga_unmerged = updated_manga_response.get("allTitlesViewV2", {}).get(
+            "AllTitlesGroup", []
+        )
+        for series in updated_manga_unmerged:
+            manga_name = series.get("theTitle")
+
+            for manga in series.get("titles", []):
+                manga_id = str(manga.get("titleId", ""))
+                if manga_id not in self.tracked_manga:
                     language = self._get_language(
-                        manga_id, manga.updated_manga.language
+                        manga.get("language", "ENGLISH"), manga_id
                     )
 
                     self._untracked_manga.append(
@@ -205,13 +274,11 @@ class Extension:
                             manga_url=self._manga_url_format.format(manga_id),
                         )
                     )
-        else:
-            logger.error(f"Couldn't get the untracked manga.")
 
-    def _get_mplus_updates(self):
-        """Get latest chapter updates."""
-        logger.info("Looking for tracked manga new chapters.")
-        print("Getting new chapters.")
+    def _get_manga_chapters(self):
+        """Get chapters of a series."""
+        logger.info("Getting all manga chapters.")
+        print("Getting all chapters.")
         tasks = []
 
         spliced_manga = [
@@ -225,6 +292,69 @@ class Extension:
             tasks.append(task)
 
         loop.run_until_complete(asyncio.gather(*tasks))
+
+    def _get_updates(self):
+        """Get latest chapter updates."""
+        logger.info("Looking for latest chapters.")
+        print("Getting new chapters.")
+        loop = create_new_event_loop()
+        task = self._fetch_updates()
+        fetched_updates = loop.run_until_complete(task)
+
+        if not fetched_updates:
+            return
+
+        updates_response = fetched_updates.get("webHomeViewV4", {})
+        updated_chapters = updates_response.get("groups", [])
+        latest_updates_list_unmerged = updated_chapters[:2]
+        latest_updates_list_merged = list(
+            itertools.chain.from_iterable(
+                [
+                    chapter_list.get("titleGroups", [])
+                    for chapter_list in latest_updates_list_unmerged
+                ]
+            )
+        )
+        updates = []
+
+        for updated_chapter in latest_updates_list_merged:
+            start_timestamp = updated_chapter.get("chapterStartTime", DEFAULT_TIMESTAMP)
+            chapter_number = updated_chapter.get("chapterNumber")
+            updated_chapter_data = updated_chapter.get("titles", [])[0]
+            manga_object = self._normalise_manga_object(updated_chapter_data)
+
+            chapter_object = Chapter(
+                chapter_id=updated_chapter_data.get("chapterId"),
+                chapter_url=self._chapter_url_format.format(
+                    updated_chapter_data.get("chapterId")
+                ),
+                chapter_timestamp=datetime.fromtimestamp(start_timestamp),
+                chapter_title=updated_chapter_data.get("chapterSubTitle"),
+                chapter_number=chapter_number,
+                chapter_language=manga_object.manga_language,
+                manga_id=manga_object.manga_id,
+                md_manga_id=find_key_from_list_value(
+                    self._manga_id_map, manga_object.manga_id
+                ),
+                manga_name=manga_object.manga_name,
+                manga_url=self._manga_url_format.format(manga_object.manga_id),
+                extension_name=self.name,
+            )
+
+            updates.extend(
+                self.normalise_chapter_fields([chapter_object], chapter_object)
+            )
+
+        updated_chapters = [
+            chapter
+            for chapter in updates
+            if str(chapter.chapter_id) not in self._posted_chapters_ids
+        ]
+
+        if updated_chapters:
+            logger.info(f"MangaPlus newly updated chapters: {updated_chapters}")
+
+        self._updated_chapters.extend(updated_chapters)
 
     def _decrypt_image(self, url: str, encryption_hex: str) -> bytes:
         """Decrypt the image so it can be saved.
@@ -247,21 +377,27 @@ class Extension:
         if self.fetch_all_chapters:
             return
 
-        try:
-            response = requests.get(self._images_api_url.format(chapter_id))
-        except requests.RequestException as e:
-            traceback.print_exc()
-            logger.exception(f"Error fetching images data for chapter {chapter_id}.")
+        loop = create_new_event_loop()
+        task = self._fetch_chapter_images(chapter_id)
+        response = loop.run_until_complete(task)
+        if not response:
+            logger.error(f"Error fetching images data for chapter {chapter_id}.")
 
-        viewer = Response.FromString(response.content).success.manga_viewer
-        pages = [p.manga_page for p in viewer.pages if p.manga_page.image_url]
+        viewer = response.get("pages", [])
+        pages = [
+            p.get("mangaPage", {})
+            for p in viewer
+            if p.get("mangaPage", {}).get("imageUrl")
+        ]
         images = []
 
         logger.debug(f"{len(pages)} images for chapter {chapter_id}.")
 
         for page in pages:
             try:
-                image = self._decrypt_image(page.image_url, page.encryption_key)
+                image = self._decrypt_image(
+                    page.get("imageUrl"), page.get("encryptionKey")
+                )
                 if image is not None:
                     images.append(image)
             except requests.RequestException as e:
@@ -274,20 +410,24 @@ class Extension:
         return
 
     def _normalise_chapter_object(
-        self, chapter_list, manga_object: Manga
+        self, chapter_list: List[dict], manga_object: Manga
     ) -> List[Chapter]:
         """Return a list of chapter objects made from the api chapter lists."""
         return [
             Chapter(
-                chapter_id=mplus_chapter.chapter_id,
-                chapter_url=self._chapter_url_format.format(mplus_chapter.chapter_id),
-                chapter_timestamp=datetime.fromtimestamp(mplus_chapter.start_timestamp),
-                chapter_title=mplus_chapter.chapter_name,
-                chapter_expire=datetime.fromtimestamp(mplus_chapter.end_timestamp),
-                chapter_number=mplus_chapter.chapter_number,
-                chapter_language=self._get_language(
-                    manga_object.manga_id, manga_object.manga_language
+                chapter_id=mplus_chapter.get("chapterId"),
+                chapter_url=self._chapter_url_format.format(
+                    mplus_chapter.get("chapterId")
                 ),
+                chapter_timestamp=datetime.fromtimestamp(
+                    mplus_chapter.get("startTimeStamp", DEFAULT_TIMESTAMP)
+                ),
+                chapter_title=mplus_chapter.get("subTitle"),
+                chapter_expire=datetime.fromtimestamp(
+                    mplus_chapter.get("endTimeStamp", DEFAULT_TIMESTAMP)
+                ),
+                chapter_number=mplus_chapter.get("name"),
+                chapter_language=manga_object.manga_language,
                 manga_id=manga_object.manga_id,
                 md_manga_id=find_key_from_list_value(
                     self._manga_id_map, manga_object.manga_id
@@ -302,37 +442,30 @@ class Extension:
     async def _chapter_updates(self, mangas: list):
         """Get the updated chapters from each manga."""
         for manga in mangas:
-            manga_response = await self._request_from_api(manga_id=manga)
-            if manga_response is None:
+            manga_response = await self._fetch_title_data(manga_id=manga)
+            if not manga_response:
                 continue
 
-            manga_response_parsed = self._get_proto_response(manga_response)
-
-            manga_chapters = manga_response_parsed.success.manga_detail
-            manga_object = Manga(
-                manga_id=manga_chapters.manga.manga_id,
-                manga_name=manga_chapters.manga.manga_name,
-                manga_language=self._get_language(
-                    manga_chapters.manga.manga_id, manga_chapters.manga.language
-                ),
-                manga_url=self._manga_url_format.format(manga_chapters.manga.manga_id),
-            )
+            title_detail_view = manga_response.get("titleDetailView", {})
+            manga_object = self._normalise_manga_object(title_detail_view)
 
             manga_chapters_lists = []
-            manga_chapters_lists.append(
-                self._normalise_chapter_object(
-                    list(manga_chapters.first_chapter_list), manga_object
-                )
-            )
-
-            if len(manga_chapters.last_chapter_list) > 0:
+            manga_chapter_list_group = title_detail_view.get("chapterListGroup", [])
+            for chapter_list in manga_chapter_list_group:
                 manga_chapters_lists.append(
                     self._normalise_chapter_object(
-                        list(manga_chapters.last_chapter_list), manga_object
+                        list(
+                            itertools.chain(
+                                chapter_list.get("firstChapterList", []),
+                                chapter_list.get("midChapterList", []),
+                                chapter_list.get("lastChapterList", []),
+                            )
+                        ),
+                        manga_object,
                     )
                 )
 
-            normalised_chapters = self.normalise_chapter_fields(manga_chapters_lists)
+            normalised_chapters = self.normalise_chapters(manga_chapters_lists)
             self._all_mplus_chapters.extend(normalised_chapters)
 
             updated_chapters = [
@@ -606,7 +739,7 @@ class Extension:
         # )
         return normalised_title
 
-    def normalise_chapter_fields(
+    def normalise_chapters(
         self, manga_chapters_lists: List[List[Chapter]]
     ) -> List[Chapter]:
         """Normalise the chapter fields for MangaDex."""
@@ -615,17 +748,26 @@ class Extension:
         for chapters in manga_chapters_lists:
             # Go through the last three chapters
             for chapter in chapters:
-                chapter_number_split = self._normalise_chapter_number(chapters, chapter)
-                chapter_title = self._normalise_chapter_title(
-                    chapter, chapter_number_split
+                updated_chapters.extend(
+                    self.normalise_chapter_fields(chapters, chapter)
                 )
 
-                # MPlus sometimes joins two chapters as one, upload to md as
-                # two different chapters
-                for chap_number in chapter_number_split:
-                    copied_chapter = copy(chapter)
-                    copied_chapter.chapter_number = chap_number
-                    copied_chapter.chapter_title = chapter_title
-                    updated_chapters.append(copied_chapter)
+        return updated_chapters
+
+    def normalise_chapter_fields(
+        self, chapters: List[Chapter], chapter: Chapter
+    ) -> List[Chapter]:
+        updated_chapters = []
+
+        chapter_number_split = self._normalise_chapter_number(chapters, chapter)
+        chapter_title = self._normalise_chapter_title(chapter, chapter_number_split)
+
+        # MPlus sometimes joins two chapters as one, upload to md as
+        # two different chapters
+        for chap_number in chapter_number_split:
+            copied_chapter = copy(chapter)
+            copied_chapter.chapter_number = chap_number
+            copied_chapter.chapter_title = chapter_title
+            updated_chapters.append(copied_chapter)
 
         return updated_chapters
