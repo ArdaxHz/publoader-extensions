@@ -157,17 +157,17 @@ class Extension:
             title_language = self._get_language(
                 title_detail.get("language", "ENGLISH"), title_id
             )
-        if "titleLanguages" in title_detail_view:
-            title_languages = title_detail_view.get("titleLanguages", [])
-            language_to_change = next(
-                (
-                    item.get("language", "ENGLISH")
-                    for item in title_languages
-                    if item.get("titleId") == title_id
-                ),
-                "ENGLISH",
-            )
-            title_language = self._get_language(language_to_change, title_id)
+        # elif "titleLanguages" in title_detail_view:
+        #     title_languages = title_detail_view.get("titleLanguages", [])
+        #     language_to_change = next(
+        #         (
+        #             item.get("language", "ENGLISH")
+        #             for item in title_languages
+        #             if item.get("titleId") == title_id
+        #         ),
+        #         "ENGLISH",
+        #     )
+        #     title_language = self._get_language(language_to_change, title_id)
 
         manga_object = Manga(
             manga_id=title_id,
