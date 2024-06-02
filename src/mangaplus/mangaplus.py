@@ -25,7 +25,7 @@ from publoader.utils.utils import (
 
 DEFAULT_TIMESTAMP = 1
 
-__version__ = "0.2.0"
+__version__ = "0.2.01"
 
 setup_extension_logs(
     logger_name="mangaplus",
@@ -457,7 +457,6 @@ class Extension:
                         list(
                             itertools.chain(
                                 chapter_list.get("firstChapterList", []),
-                                chapter_list.get("midChapterList", []),
                                 chapter_list.get("lastChapterList", []),
                             )
                         ),
