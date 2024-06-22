@@ -306,7 +306,7 @@ class Extension:
 
         updates_response = fetched_updates.get("webHomeViewV4", {})
         updated_chapters = updates_response.get("groups", [])
-        latest_updates_list_unmerged = updated_chapters[:2]
+        latest_updates_list_unmerged = updated_chapters[:6]
         latest_updates_list_merged = list(
             itertools.chain.from_iterable(
                 [
