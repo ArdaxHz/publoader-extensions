@@ -112,11 +112,8 @@ class Extension:
         self.override_options = self._open_override_options()
         self._num2words: Optional[str] = self._get_num2words_string()
 
-        if self.fetch_all_chapters:
-            self._get_untracked_manga()
-            self._get_manga_chapters()
-        else:
-            self._get_updates()
+        self._get_untracked_manga()
+        self._get_manga_chapters()
 
     def _open_manga_id_map(self):
         return open_manga_id_map(
