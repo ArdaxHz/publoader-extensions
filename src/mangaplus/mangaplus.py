@@ -111,16 +111,17 @@ class Extension:
         ]
         self.override_options = self._open_override_options()
         self._num2words: Optional[str] = self._get_num2words_string()
+        self.manga_no_chapters = self.override_options.get("no_chapters", [])
 
         self._get_untracked_manga()
         self._get_manga_chapters()
 
-    def _open_manga_id_map(self):
+    def _open_manga_id_map(self) -> "dict":
         return open_manga_id_map(
             self.extension_dirpath.joinpath(self.manga_id_map_filename)
         )
 
-    def _open_override_options(self):
+    def _open_override_options(self) -> "dict":
         return open_title_regex(
             self.extension_dirpath.joinpath(self.override_options_filename)
         )
@@ -258,7 +259,7 @@ class Extension:
 
             for manga in series.get("titles", []):
                 manga_id = str(manga.get("titleId", ""))
-                if manga_id not in self.tracked_manga:
+                if manga_id not in self.tracked_manga + self.manga_no_chapters:
                     language = self._get_language(
                         manga.get("language", "ENGLISH"), manga_id
                     )
