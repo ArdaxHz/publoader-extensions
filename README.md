@@ -1,3 +1,10 @@
+Esto es de un amigo que esta en la universida, pero me he marcado un marroquian style y se lo he robaoh
+
+
+
+
+
+
 # Contributing
 
 This guide have some instructions and tips on how to create a new publisher extension. Please **read it carefully** if you're a new contributor or don't have any experience on the required languages and knowledges.
