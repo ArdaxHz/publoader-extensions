@@ -8,3 +8,4 @@ logs/*
 *.bak
 manga_data.json
 .idea
+.prettier*
