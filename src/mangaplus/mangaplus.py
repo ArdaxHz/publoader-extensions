@@ -661,21 +661,21 @@ class Extension:
     ) -> Optional[str]:
         """Strip away the title prefix."""
         colon_regex = re.compile(
-            r"^(?:\S+\s?)?\d+(?:[\,\-\.]\d{0,2})?\s?:\s?", re.I
+            r"^(?:\S+\s*)?\d+(?:[\,\-\.]\d{0,2})?\s?:\s?", re.I
         )
         no_title_regex = re.compile(r"^\S+\s*\d+(?:[\,\-\.]\d{0,2})?$", re.I)
-        hashtag_regex = re.compile(r"^(?:\S+\s?)?#\d+(?:[\,\-\.]\d{0,2})?\s?", re.I)
+        hashtag_regex = re.compile(r"^(?:\S+\s*)?#\d+(?:[\,\-\.]\d{0,2})?\s?", re.I)
         period_dash_regex = re.compile(
-            r"^(?:\S+\s?)?\d+(?:[\,\-\.]\d{0,2})?\s?[\.\/\-]\s?", re.I
+            r"^(?:\S+\s*)?\d+(?:[\,\-\.]\d{0,2})?\s?[\.\/\-]\s?", re.I
         )
-        spaces_regex = re.compile(r"^(?:\S+\s?)?\d+(?:[\,\-\.]\d{0,2})?\s?", re.I)
+        spaces_regex = re.compile(r"^(?:\S+\s*)?\d+(?:[\,\-\.]\d{0,2})?\s?", re.I)
         final_chapter_regex = re.compile(
             r"^(?:final|last)\s?(?:chapter|ep|episode)\s?[\:\.]\s?", re.I
         )
         word_numbers_regex = None
         if self._num2words is not None:
             word_numbers_regex = re.compile(
-                rf"^(?:\S+\s?)\s?{self._num2words}\s?(?:{self._num2words}\s?)?\:\s?",
+                rf"^(?:\S+\s*)\s?{self._num2words}\s?(?:{self._num2words}\s?)?\:\s?",
                 re.I,
             )
 
