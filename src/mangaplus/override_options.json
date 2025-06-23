@@ -43,7 +43,9 @@
         "2000924": ["2008509"],
         "2000925": ["2008510"]
     },
-    "custom_language": {},
+    "custom_language": {
+        "200159": "es-la"
+    },
     "num2words": [
         "one",
         "two",
